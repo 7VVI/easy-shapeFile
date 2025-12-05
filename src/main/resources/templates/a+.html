@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基线几何计算原理</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        canvas {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            display: block;
+            margin: 20px auto;
+            background: #fafafa;
+            cursor: crosshair;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .control-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 13px;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .value-display {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        .explanation {
+            background: #f0f7ff;
+            border-left: 4px solid #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .explanation h3 {
+            margin-top: 0;
+            color: #2196F3;
+        }
+        .formula {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            overflow-x: auto;
+        }
+        .step {
+            background: #fff9e6;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .step-title {
+            font-weight: bold;
+            color: #f57c00;
+            margin-bottom: 8px;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #333;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📐 基线几何计算原理图示</h1>
+    <p class="subtitle">BaseLineTypeEnum.A 类型基线自动生成算法可视化</p>
+
+    <canvas id="canvas" width="800" height="600"></canvas>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4CAF50;"></div>
+            <span>地块多边形</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #2196F3;"></div>
+            <span>外接矩形</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #FF9800;"></div>
+            <span>对角线 (diag)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #F44336;"></div>
+            <span>基线 (60% diag)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #9C27B0;"></div>
+            <span>质心</span>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>
+                角度 (Angle):
+                <span class="value-display" id="angleValue">45°</span>
+            </label>
+            <input type="range" id="angleSlider" min="0" max="360" value="45" step="1">
+        </div>
+        <div class="control-group">
+            <label>
+                比例系数:
+                <span class="value-display" id="scaleValue">0.60</span>
+            </label>
+            <input type="range" id="scaleSlider" min="0.1" max="1.5" value="0.6" step="0.05">
+        </div>
+        <div class="control-group">
+            <label>坐标点模式:</label>
+            <select id="modeSelect" style="width: 100%; padding: 8px; border-radius: 5px; border: 1px solid #ddd;">
+                <option value="0">无坐标 (从质心生成)</option>
+                <option value="1">单点 (从点延伸)</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="explanation">
+        <h3>🔍 代码逻辑详解</h3>
+
+        <div class="step">
+            <div class="step-title">步骤 1: 解析地块几何</div>
+            从 GeoJSON 中读取 Polygon 几何数据，获取外环坐标点，转换为 JTS Coordinate 数组。
+            <div class="formula">
+                Coordinate[] shell = new Coordinate[ext.size()];
+                for (int i = 0; i < ext.size(); i++) {
+                shell[i] = new Coordinate(lng, lat);
+                }</div>
+        </div>
+
+        <div class="step">
+            <div class="step-title">步骤 2: 闭合多边形</div>
+            确保首尾点相同（多边形闭合条件），若不相同则添加首点到末尾。
+            <div class="formula">
+                if (!shell[0].equals2D(shell[shell.length - 1])) {
+                shell = Arrays.copyOf(shell, shell.length + 1);
+                shell[shell.length - 1] = shell[0];
+                }</div>
+        </div>
+
+        <div class="step">
+            <div class="step-title">步骤 3: 计算外接矩形对角线</div>
+            获取多边形的外接矩形（Envelope），计算其对角线长度。
+            <div class="formula">
+                width = env.getWidth();
+                height = env.getHeight();
+                diag = √(width² + height²)  // 勾股定理</div>
+        </div>
+
+        <div class="step">
+            <div class="step-title">步骤 4: 确定基线长度</div>
+            基线长度为对角线的 60%（可调整比例系数）。
+            <div class="formula">
+                half = diag × 0.6  // 半长 = 对角线 × 60%
+                基线总长 = 2 × half = diag × 1.2</div>
+        </div>
+
+        <div class="step">
+            <div class="step-title">步骤 5: 角度转向量</div>
+            将角度（度）转换为弧度，并计算 X/Y 方向的偏移量。
+            <div class="formula">
+                rad = angle × (π / 180)  // 角度转弧度
+                dx = sin(rad) × half     // X方向偏移
+                dy = cos(rad) × half     // Y方向偏移</div>
+        </div>
+
+        <div class="step">
+            <div class="step-title">步骤 6: 生成基线坐标</div>
+            <strong>情况 A (coords.size() == 1):</strong> 从已有点延伸
+            <div class="formula">
+                起点 = coords[0]
+                终点 = (起点.x + dx, 起点.y + dy)</div>
+
+            <strong>情况 B (coords.size() == 0):</strong> 从质心两侧生成
+            <div class="formula">
+                质心 = poly.getCentroid()
+                起点 = (质心.x - dx, 质心.y - dy)
+                终点 = (质心.x + dx, 质心.y + dy)</div>
+        </div>
+    </div>
+
+    <div class="explanation">
+        <h3>📊 数学原理</h3>
+        <p><strong>为什么使用 sin/cos？</strong></p>
+        <p>在二维平面中，从一个点沿特定角度移动距离 r：</p>
+        <div class="formula">
+            • X 偏移 = r × sin(θ)  // 水平方向
+            • Y 偏移 = r × cos(θ)  // 垂直方向
+        </div>
+        <p>注意：这里 θ=0° 表示正北方向（Y轴正向），顺时针旋转为正。</p>
+
+        <p><strong>为什么选择 60% 对角线？</strong></p>
+        <p>• 确保基线长度适中，不会过短或超出地块范围<br>
+            • 对角线代表地块最大跨度，取 60% 是经验值<br>
+            • 可根据实际需求调整此系数（如 0.5~0.8）</p>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const angleSlider = document.getElementById('angleSlider');
+    const scaleSlider = document.getElementById('scaleSlider');
+    const modeSelect = document.getElementById('modeSelect');
+    const angleValue = document.getElementById('angleValue');
+    const scaleValue = document.getElementById('scaleValue');
+
+    // 多边形顶点（相对坐标）
+    const polygonPoints = [
+        [150, 100], [450, 80], [500, 300], [400, 450], [200, 420], [100, 250]
+    ];
+
+    let startPoint = null;
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const angle = parseFloat(angleSlider.value);
+        const scale = parseFloat(scaleSlider.value);
+        const mode = parseInt(modeSelect.value);
+
+        angleValue.textContent = angle + '°';
+        scaleValue.textContent = scale.toFixed(2);
+
+        // 1. 绘制多边形
+        ctx.beginPath();
+        ctx.moveTo(polygonPoints[0][0], polygonPoints[0][1]);
+        for (let i = 1; i < polygonPoints.length; i++) {
+            ctx.lineTo(polygonPoints[i][0], polygonPoints[i][1]);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(76, 175, 80, 0.2)';
+        ctx.fill();
+        ctx.strokeStyle = '#4CAF50';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 2. 计算边界框
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        polygonPoints.forEach(p => {
+            minX = Math.min(minX, p[0]);
+            minY = Math.min(minY, p[1]);
+            maxX = Math.max(maxX, p[0]);
+            maxY = Math.max(maxY, p[1]);
+        });
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+
+        // 绘制外接矩形
+        ctx.strokeStyle = '#2196F3';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(minX, minY, width, height);
+        ctx.setLineDash([]);
+
+        // 绘制对角线
+        ctx.strokeStyle = '#FF9800';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(minX, minY);
+        ctx.lineTo(maxX, maxY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 3. 计算对角线长度
+        const diag = Math.sqrt(width * width + height * height);
+        const half = diag * scale;
+
+        // 4. 计算质心
+        const centroidX = polygonPoints.reduce((sum, p) => sum + p[0], 0) / polygonPoints.length;
+        const centroidY = polygonPoints.reduce((sum, p) => sum + p[1], 0) / polygonPoints.length;
+
+        // 绘制质心
+        ctx.fillStyle = '#9C27B0';
+        ctx.beginPath();
+        ctx.arc(centroidX, centroidY, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 5. 计算偏移
+        const rad = angle * Math.PI / 180;
+        const dx = Math.sin(rad) * half;
+        const dy = Math.cos(rad) * half;
+
+        // 6. 根据模式绘制基线
+        let x0, y0, x1, y1;
+
+        if (mode === 1 && startPoint) {
+            // 从单点延伸
+            x0 = startPoint[0];
+            y0 = startPoint[1];
+            x1 = x0 + dx;
+            y1 = y0 + dy;
+
+            // 绘制起点
+            ctx.fillStyle = '#FF5722';
+            ctx.beginPath();
+            ctx.arc(x0, y0, 5, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // 从质心两侧
+            x0 = centroidX - dx;
+            y0 = centroidY - dy;
+            x1 = centroidX + dx;
+            y1 = centroidY + dy;
+        }
+
+        // 绘制基线
+        ctx.strokeStyle = '#F44336';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+
+        // 绘制基线端点
+        ctx.fillStyle = '#F44336';
+        ctx.beginPath();
+        ctx.arc(x0, y0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x1, y1, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 绘制方向箭头
+        const arrowLen = 15;
+        const arrowAngle = Math.PI / 6;
+        const lineAngle = Math.atan2(y1 - y0, x1 - x0);
+
+        ctx.strokeStyle = '#F44336';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(
+            x1 - arrowLen * Math.cos(lineAngle - arrowAngle),
+            y1 - arrowLen * Math.sin(lineAngle - arrowAngle)
+        );
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(
+            x1 - arrowLen * Math.cos(lineAngle + arrowAngle),
+            y1 - arrowLen * Math.sin(lineAngle + arrowAngle)
+        );
+        ctx.stroke();
+
+        // 标注
+        ctx.fillStyle = '#333';
+        ctx.font = '12px Arial';
+        ctx.fillText(`对角线: ${diag.toFixed(1)}px`, minX, minY - 10);
+        ctx.fillText(`基线长: ${(half * 2).toFixed(1)}px`, (x0 + x1) / 2 + 10, (y0 + y1) / 2 - 10);
+        ctx.fillText(`角度: ${angle}°`, x1 + 10, y1);
+    }
+
+    canvas.addEventListener('click', (e) => {
+        if (parseInt(modeSelect.value) === 1) {
+            const rect = canvas.getBoundingClientRect();
+            startPoint = [e.clientX - rect.left, e.clientY - rect.top];
+            draw();
+        }
+    });
+
+    angleSlider.addEventListener('input', draw);
+    scaleSlider.addEventListener('input', draw);
+    modeSelect.addEventListener('change', () => {
+        startPoint = null;
+        draw();
+    });
+
+    draw();
+</script>
+</body>
+</html>
